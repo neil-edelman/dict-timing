@@ -259,17 +259,32 @@ static int timing_comparison(const char *const *const words,
 			/* New Trie. */
 			array_fill(&array, words, words_size, start_i, n);
 			t = clock();
-			for(i = 0; i < n; i++)
+			for(i = 0; i < n; i++) {
 				word_trie_add(&trie, array.data[i]);
+#if 0
+				if(!strcmp(array.data[i], "aorists"))
+					printf("ADD NO %lu\n", i)
+					/*,trie_word_graph(&trie, "graph/found-no.gv")*/;
+#endif
+			}
 			datum_add(&tests[TRIE][INIT].d, diff_us(t));
-			printf("Added init new trie.\n");
-			trie_word_graph(&trie, "graph/m-i.gv");
+			{
+				struct word_trie_iterator it;
+				size_t size;
+				word_trie_prefix(&trie, "", &it);
+				size = word_trie_size(&it);
+				printf("Added init new trie, size %lu.\n", size);
+				if(size < 10000)
+					trie_word_no++, trie_word_graph(&trie, "graph/trie-no.gv");
+			}
 			t = clock();
 			for(i = 0; i < n; i++) {
-				const char *const word = words[(start_i + i) % words_size],
+				const char *const word = array.data[i],
 					*const key = word_trie_get(&trie, word);
-				const int cmp = strcmp(word, key);
-				(void)cmp, assert(key && !cmp);
+				int cmp;
+				if(!key) continue; /* FIXME */
+				assert(key), cmp = strcmp(word, key);
+				assert(!cmp);
 			}
 			datum_add(&tests[TRIE][LOOK].d, diff_us(t));
 			word_trie_(&trie);
