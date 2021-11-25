@@ -334,10 +334,11 @@ finally:
 			if(sprintf(fn, "graph/%s-%s.gnu", gnu_name, act_str[act]) < 0
 				|| !(gnu_fp = fopen(fn, "w"))) goto catch2;
 			fprintf(gnu_fp,
-				"set style line 1 lt 5 lw 2 lc rgb '#0072bd'\n"
-				"set style line 2 lt 5 lw 2 lc rgb '#ff0000'\n" /* a2142f */
-				"set style line 3 lt 5 lw 2 lc rgb '#00ac33'\n" /* 30ac77 */
-				"set style line 4 lt 5 lw 2 lc rgb '#19d3f5'\n");
+				/*"set for [i=1:8] linetype i dashtype i\n"*/
+				"set style line 1 lt 5 lw 3 lc rgb '#0072bd'\n"
+				"set style line 2 lt 5 lw 3 lc rgb '#ff0000'\n" /* a2142f */
+				"set style line 3 lt 5 lw 3 lc rgb '#00ac33'\n" /* 30ac77 */
+				"set style line 4 lt 5 lw 3 lc rgb '#19d3f5'\n");
 			fprintf(gnu_fp, "set term postscript eps enhanced color\n"
 				/*"set encoding utf8\n" Doesn't work at all; {/Symbol m}. */
 				"set output \"graph/%s-%s.eps\"\n"
