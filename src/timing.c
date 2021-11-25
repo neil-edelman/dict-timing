@@ -114,7 +114,7 @@ static int array_fill(struct word_array *const array,
 
 static int timing_comparison(const char *const *const words,
 	const size_t words_size) {
-	size_t i, r, n, x, replicas = 5;
+	size_t i, r, n, x, replicas = 5, wtf;
 	clock_t t, t_total;
 	int success = 0, is_full = 0;
 	const char *const gnu_name = "experiment";
@@ -257,11 +257,13 @@ static int timing_comparison(const char *const *const words,
 				(unsigned long)trie_size(&btrie));
 
 			/* New Trie. */
+			wtf = 0;
 			array_fill(&array, words, words_size, start_i, n);
 			t = clock();
 			for(i = 0; i < n; i++) {
 				word_trie_add(&trie, array.data[i]);
 #if 0
+				/* It is getting here. */
 				if(!strcmp(array.data[i], "aorists"))
 					printf("ADD NO %lu\n", i)
 					/*,trie_word_graph(&trie, "graph/found-no.gv")*/;
@@ -282,13 +284,14 @@ static int timing_comparison(const char *const *const words,
 				const char *const word = array.data[i],
 					*const key = word_trie_get(&trie, word);
 				int cmp;
-				if(!key) continue; /* FIXME */
+				if(!key) { wtf++; continue; }
 				assert(key), cmp = strcmp(word, key);
 				assert(!cmp);
 			}
 			datum_add(&tests[TRIE][LOOK].d, diff_us(t));
 			word_trie_(&trie);
 			printf("Added look trie.\n");
+			if(wtf) printf("%lu UNEXPLAINED OCCURANCES!\n", wtf);
 
 			/* Took took much time; decrease the replicas for next time. */
 			if(replicas != 1
