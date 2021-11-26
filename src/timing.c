@@ -66,12 +66,8 @@ static int word_cmp_void(const void *const a, const void *const b)
 #undef T_
 #undef TRIE_H
 
-/* This has no parameterization yet. */
-#include "../../../trie/src/btrie.h"
-
-static void fill_word(const char *const *a) { assert(a && (!a ^ 0)); }
-
 /* Fixed-size trie. */
+static void fill_word(const char *const *a) { assert(a && (!a ^ 0)); }
 #define TRIE_NAME fixed
 #define TRIE_TO_STRING
 #define TRIE_TEST &fill_word
@@ -142,7 +138,7 @@ static void word_to_string(const char *const*const ps, char (*const a)[12]) {
 
 
 /* How many experiments is an X-macro. `gnuplot` doesn't like `_`. */
-#define TESTS X(ARRAY), X(HASH), X(FIXEDTRIE), X(BTRIE), X(TRIE)
+#define TESTS X(ARRAY), X(HASH), X(FIXEDTRIE), X(BTRIE)
 
 static int timing_comparison(const char *const *const words,
 	const size_t words_size) {
@@ -157,8 +153,7 @@ static int timing_comparison(const char *const *const words,
 	struct word_set set = SET_IDLE;
 	struct word_node_pool word_pool = POOL_IDLE;
 	struct fixed_trie ftrie = TRIE_IDLE;
-	struct trie btrie = {MIN_ARRAY_IDLE};
-	struct word_trie trie = TRIE_IDLE;
+	struct word_trie btrie = TRIE_IDLE;
 
 	/* How many files we open simultaneously. */
 	enum { INIT, LOOK } act;
@@ -247,75 +242,55 @@ static int timing_comparison(const char *const *const words,
 			printf("Added look hash size %lu.\n",
 				(unsigned long)set.size);
 
-			/* Old Trie. */
+			/* Fixed trie. */
 			t = clock();
 			array_fill(&array, words, words_size, start_i, n);
 			fixed_trie_clear(&ftrie);
 			/*for(i = 0; i < n; i++)
-				str_trie_add(&trie, array.data[i]); <- this is slow! */
+				str_trie_add(&trie, array.data[i]); <- this is very slow! */
 			fixed_trie_from_array(&ftrie, array.data, array.size);
 			datum_add(&tests[FIXEDTRIE][INIT].d, diff_us(t));
-			printf("Added init trie size %lu: %s.\n",
+			printf("Added init fixed trie size %lu: %s.\n",
 				(unsigned long)fixed_trie_size(&ftrie),
 				fixed_trie_to_string(&ftrie));
 			t = clock();
 			for(i = 0; i < n; i++) {
-				const char *const word = words[(start_i + i) % words_size],
+				const char *const word = array.data[i],
 					*const key = fixed_trie_get(&ftrie, word);
 				const int cmp = strcmp(word, key);
 				(void)cmp, assert(key && !cmp);
 			}
 			datum_add(&tests[FIXEDTRIE][LOOK].d, diff_us(t));
-			printf("Added look trie size %lu.\n",
+			printf("Added look fixed trie size %lu.\n",
 				(unsigned long)fixed_trie_size(&ftrie));
 
-			/* BTrie. */
-			array_fill(&array, words, words_size, start_i, n);
-			t = clock();
-			trie_clear(&btrie);
-			for(i = 0; i < n; i++)
-				trie_add(&btrie, array.data[i]);
-			datum_add(&tests[BTRIE][INIT].d, diff_us(t));
-			printf("Added init btrie size %lu.\n",
-				(unsigned long)trie_size(&btrie));
-			t = clock();
-			for(i = 0; i < n; i++) {
-				const char *const word = array.data[i],
-					*const key = trie_get(&btrie, word);
-				const int cmp = strcmp(word, key);
-				(void)cmp, assert(key && !cmp);
-			}
-			datum_add(&tests[BTRIE][LOOK].d, diff_us(t));
-			printf("Added look btrie size %lu.\n",
-				(unsigned long)trie_size(&btrie));
-
-			/* New Trie. */
+			/* B-Tree trie. */
 			wtf = 0;
 			array_fill(&array, words, words_size, start_i, n);
 			t = clock();
-			for(i = 0; i < n; i++) word_trie_add(&trie, array.data[i]);
-			datum_add(&tests[TRIE][INIT].d, diff_us(t));
+			for(i = 0; i < n; i++) word_trie_add(&btrie, array.data[i]);
+			datum_add(&tests[BTRIE][INIT].d, diff_us(t));
 			{
 				struct word_trie_iterator it;
 				size_t size;
-				word_trie_prefix(&trie, "", &it);
+				word_trie_prefix(&btrie, "", &it);
 				size = word_trie_size(&it);
-				printf("Added init new trie, size %lu.\n", size);
+				printf("Added init new B-trie, size %lu.\n", size);
 				if(size < 10000)
-					trie_word_no++, trie_word_graph(&trie, "graph/trie-no.gv");
+					trie_word_no++, trie_word_graph(&btrie, "graph/trie-no.gv");
 			}
 			t = clock();
 			for(i = 0; i < n; i++) {
 				const char *const word = array.data[i],
-					*const key = word_trie_get(&trie, word);
+					*const key = word_trie_get(&btrie, word);
 				int cmp;
 				if(!key) { wtf++; continue; }
 				assert(key), cmp = strcmp(word, key);
 				assert(!cmp);
 			}
-			datum_add(&tests[TRIE][LOOK].d, diff_us(t));
-			word_trie_(&trie);
-			printf("Added look trie.\n");
+			datum_add(&tests[BTRIE][LOOK].d, diff_us(t));
+			word_trie_(&btrie);
+			printf("Added look B-trie.\n");
 			if(wtf) printf("%lu UNEXPLAINED OCCURANCES!\n", wtf);
 
 			/* Took took much time; decrease the replicas for next time. */
@@ -341,10 +316,10 @@ catch:
 	printf("Test failed.\n");
 finally:
 	word_array_(&array);
-	/*string_set_(&set);
-	string_node_pool_(&set_pool);*/
+	word_set_(&set);
+	word_node_pool_(&word_pool);
 	fixed_trie_(&ftrie);
-	word_trie_(&trie);
+	word_trie_(&btrie);
 	for(x = 0; x < tests_size; x++)
 		for(act = INIT; act <= LOOK; act++)
 		if(tests[x][act].fp && fclose(tests[x][act].fp))
@@ -416,7 +391,7 @@ int main(void) {
 #else
 	/* Generated data. */
 	const char **words = 0;
-	const size_t words_size = 10000000;
+	const size_t words_size = 1000000;
 	struct orc { char name[64]; } *orcs = 0;
 	size_t i;
 	int success = EXIT_FAILURE;
