@@ -45,7 +45,6 @@ static double diff_us(clock_t then)
 
 /* The test data. */
 
-static const char *word_key(const char *const *const w) { return *w; }
 static void word_to_str(const char *const *const w, char (*const a)[12])
 	{ sprintf(*a, "%.11s", *w); }
 static int word_cmp(const char *const *const a, const char *const *const b)
@@ -67,7 +66,7 @@ static int word_cmp_void(const void *const a, const void *const b)
 #undef T_
 #undef TRIE_H
 
-/* This has no parameterazation yet. */
+/* This has no parameterization yet. */
 #include "../../../trie/src/btrie.h"
 
 static void fill_word(const char *const *a) { assert(a && (!a ^ 0)); }
@@ -108,9 +107,42 @@ static int array_fill(struct word_array *const array,
 	return 1;
 }
 
+/** Perform a 32 bit
+ [Fowler/Noll/Vo FNV-1a](http://www.isthe.com/chongo/tech/comp/fnv/) hash on
+ `str`. */
+static unsigned fnv_32a_str(const char *const str) {
+	const unsigned char *s = (const unsigned char *)str;
+	/* 32 bit FNV-1 and FNV-1a non-zero initial basis, `FNV1_32A_INIT`. */
+	unsigned hval = 0x811c9dc5;
+	/* FNV magic prime `FNV_32_PRIME 0x01000193`. */
+	while(*s) {
+		hval ^= *s++;
+		hval += (hval<<1) + (hval<<4) + (hval<<7) + (hval<<8) + (hval<<24);
+	}
+	return hval;
+}
+static int word_is_equal(const char *const a, const char *const b) {
+	return !strcmp(a, b);
+}
+static void word_to_string(const char *const*const ps, char (*const a)[12]) {
+	strncpy(*a, *ps, sizeof(*a) - 1);
+	(*a)[sizeof(*a) - 1] = '\0';
+}
+#define SET_NAME word
+#define SET_TYPE const char *
+#define SET_HASH &fnv_32a_str
+#define SET_IS_EQUAL &word_is_equal
+#define SET_EXPECT_TRAIT
+#include "../../../set/src/set.h"
+#define SET_TO_STRING &word_to_string
+#include "../../../set/src/set.h"
+#define POOL_NAME word_node
+#define POOL_TYPE struct word_set_node
+#include "../../../pool/src/pool.h"
+
 
 /* How many experiments is an X-macro. `gnuplot` doesn't like `_`. */
-#define TESTS X(ARRAY), X(FIXEDTRIE), X(BTRIE), X(TRIE)
+#define TESTS X(ARRAY), X(HASH), X(FIXEDTRIE), X(BTRIE), X(TRIE)
 
 static int timing_comparison(const char *const *const words,
 	const size_t words_size) {
@@ -122,6 +154,8 @@ static int timing_comparison(const char *const *const words,
 
 	/* The containers. */
 	struct word_array array = ARRAY_IDLE;
+	struct word_set set = SET_IDLE;
+	struct word_node_pool word_pool = POOL_IDLE;
 	struct fixed_trie ftrie = TRIE_IDLE;
 	struct trie btrie = {MIN_ARRAY_IDLE};
 	struct word_trie trie = TRIE_IDLE;
@@ -186,33 +220,32 @@ static int timing_comparison(const char *const *const words,
 			datum_add(&tests[ARRAY][LOOK].d, diff_us(t));
 			printf("Added look array size %lu.\n", (unsigned long)array.size);
 
-#if 0
-			/* Set, (hash map.) */
-			string_set_clear(&set);
-			string_node_pool_clear(&set_pool);
+			/* Hash map. */
+			word_set_clear(&set);
+			word_node_pool_clear(&word_pool);
 			t = clock();
 			for(i = 0; i < n; i++) {
-				struct string_set_node *elem = string_node_pool_new(&set_pool);
-				elem->key = keys[(start_i + i) % keys_size];
-				if(string_set_policy_put(&set, elem, 0))
-					string_node_pool_remove(&set_pool, elem);
+				struct word_set_node *elem = word_node_pool_new(&word_pool);
+				elem->key = words[(start_i + i) % words_size];
+				if(word_set_policy_put(&set, elem, 0))
+					word_node_pool_remove(&word_pool, elem);
 			}
-			m_add(&es[HASHINIT].m, diff_us(t));
+			datum_add(&tests[HASH][INIT].d, diff_us(t));
 			printf("Added init hash size %lu: %s.\n",
-				(unsigned long)set.size,
-				string_set_to_string(&set));
+				(unsigned long)set.size, word_set_to_string(&set));
 			t = clock();
 			for(i = 0; i < n; i++) {
 				const char *const word = words[(start_i + i) % words_size];
-				const struct string_set_node *const elem
-					= string_set_get(&set, word);
-				const int cmp = strcmp(word, elem->key);
-				(void)cmp, assert(elem && !cmp);
+				const struct word_set_node *const elem
+					= word_set_get(&set, word);
+				int cmp;
+				assert(elem);
+				cmp = strcmp(word, elem->key);
+				assert(!cmp);
 			}
-			m_add(&es[HASHLOOK].m, diff_us(t));
+			datum_add(&tests[HASH][LOOK].d, diff_us(t));
 			printf("Added look hash size %lu.\n",
 				(unsigned long)set.size);
-#endif
 
 			/* Old Trie. */
 			t = clock();
@@ -247,7 +280,7 @@ static int timing_comparison(const char *const *const words,
 				(unsigned long)trie_size(&btrie));
 			t = clock();
 			for(i = 0; i < n; i++) {
-				const char *const word = words[(start_i + i) % words_size],
+				const char *const word = array.data[i],
 					*const key = trie_get(&btrie, word);
 				const int cmp = strcmp(word, key);
 				(void)cmp, assert(key && !cmp);
@@ -260,15 +293,7 @@ static int timing_comparison(const char *const *const words,
 			wtf = 0;
 			array_fill(&array, words, words_size, start_i, n);
 			t = clock();
-			for(i = 0; i < n; i++) {
-				word_trie_add(&trie, array.data[i]);
-#if 0
-				/* It is getting here. */
-				if(!strcmp(array.data[i], "aorists"))
-					printf("ADD NO %lu\n", i)
-					/*,trie_word_graph(&trie, "graph/found-no.gv")*/;
-#endif
-			}
+			for(i = 0; i < n; i++) word_trie_add(&trie, array.data[i]);
 			datum_add(&tests[TRIE][INIT].d, diff_us(t));
 			{
 				struct word_trie_iterator it;
@@ -382,9 +407,32 @@ finally2:
 }
 
 int main(void) {
+#if 0
 	/* This is a dictionary defined in `parole_inglesi.c`. */
 	extern const char *const parole[];
 	extern const size_t parole_size;
 	fprintf(stderr, "parole_size %lu\n", (unsigned long)parole_size);
 	return timing_comparison(parole, parole_size) ? EXIT_SUCCESS : EXIT_FAILURE;
+#else
+	/* Generated data. */
+	const char **words = 0;
+	const size_t words_size = 10000000;
+	struct orc { char name[64]; } *orcs = 0;
+	size_t i;
+	int success = EXIT_FAILURE;
+
+	if(!(words = malloc(sizeof *words * words_size))
+		|| !(orcs = malloc(sizeof *orcs * words_size))) goto catch;
+	for(i = 0; i < words_size; i++)
+		orcish(orcs[i].name, sizeof orcs[i].name),
+		/*printf("%s\n", orcs[i].name), */words[i] = orcs[i].name;
+	return timing_comparison(words, words_size) ? EXIT_SUCCESS : EXIT_FAILURE;
+	{ success = EXIT_SUCCESS; goto finally; }
+catch:
+	perror("orcs");
+finally:
+	free(words);
+	free(orcs);
+	return success;
+#endif
 }
